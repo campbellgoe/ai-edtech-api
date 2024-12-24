@@ -1,7 +1,10 @@
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from openai import OpenAI
+import asyncio
+import os
 
 load_dotenv()
 
@@ -16,16 +19,10 @@ class LessonRequest(BaseModel):
     topic: str
     language: str
 
-# Define response model
-class LessonResponse(BaseModel):
-    topic: str
-    language: str
-    lesson_content: str
-
-@app.post("/generate-lesson/", response_model=LessonResponse)
-async def generate_lesson(request: LessonRequest):
+@app.get("/generate-lesson-stream/")
+async def generate_lesson_stream(request: LessonRequest):
     """
-    Generate a programming lesson for a given topic and language using OpenAI API.
+    Stream a programming lesson for a given topic and language using OpenAI API.
     """
     prompt = f"""
     Topic: {request.topic}
@@ -41,25 +38,24 @@ async def generate_lesson(request: LessonRequest):
     Include detailed instructions, hints, and solutions for each challenge.
     """
 
-    try:
-        # Call OpenAI API to generate the lesson
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        
-        # Extract content from OpenAI's response
-        lesson_content = response.choices[0].message.content
-        
-        # Package the response as JSON (assuming the response is formatted correctly)
-        return LessonResponse(
-            topic=request.topic,
-            language=request.language,
-            lesson_content=lesson_content
-        )
+    async def lesson_generator():
+        try:
+            # Call OpenAI API with streaming enabled
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                stream=True  # Enable streaming
+            )
+            
+            # Stream the response chunks
+            for chunk in response:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield f"data: {content}\n\n"  # Send SSE formatted data
+                await asyncio.sleep(0)  # Yield control to the event loop
+            yield "data: [DONE]\n\n"  # Indicate the end of the stream
+        except Exception as e:
+            yield f"data: Error: {str(e)}\n\n"
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate lesson: {str(e)}")
-
-# Run the app using uvicorn (e.g., uvicorn lesson_generator_api:app --reload)
+    return StreamingResponse(lesson_generator(), media_type="text/event-stream")
