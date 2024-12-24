@@ -63,6 +63,3 @@ async def generate_lesson(request: LessonRequest):
         raise HTTPException(status_code=500, detail=f"Failed to generate lesson: {str(e)}")
 
 # Run the app using uvicorn (e.g., uvicorn lesson_generator_api:app --reload)
-
-# latest error:
-# {"detail":"Failed to generate lesson: 'str' object has no attribute 'get'"}
